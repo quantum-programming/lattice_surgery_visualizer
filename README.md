@@ -1,6 +1,16 @@
 # Lattice Surgery Visualizer
 
+![vis.png](vis.png)
+
 ## Overview
+
+Visit here:
+
+https://quantum-programming.github.io/lattice_surgery_visualizer/
+
+This is a visualizer for lattice surgery.
+
+Usage of this visualizer will be published after our paper is published.
 
 ## For developers
 
