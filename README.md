@@ -28,10 +28,6 @@ yarn dev # Run the server
 
 Then, the web app will be hosted on your local machine. Please access the URL displayed on the console. You will see the visualizer in the initial state.
 
-```bash
-wasm-pack build --target web --out-dir ../public/wasm
-```
-
 ## LICENSE
 
 This software is released under the MIT License, see [LICENSE](./LICENSE).
@@ -39,3 +35,5 @@ This software is released under the MIT License, see [LICENSE](./LICENSE).
 ## Acknowledgement
 
 This visualizer is based on [visualizer-template-public](https://github.com/yunix-kyopro/visualizer-template-public) by [yunix-kyopro](https://github.com/yunix-kyopro).
+
+Please also refer [this cite](https://yunix-kyopro.hatenablog.com/entry/2023/12/17/150534) (Japanese) for the details of the template.
