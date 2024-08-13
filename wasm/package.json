@@ -1,0 +1,21 @@
+{
+  "name": "rust",
+  "type": "module",
+  "description": "lattice_surgery_visualizer",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/quantum-programming/lattice_surgery_visualizer"
+  },
+  "files": [
+    "rust_bg.wasm",
+    "rust.js",
+    "rust.d.ts"
+  ],
+  "main": "rust.js",
+  "types": "rust.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
