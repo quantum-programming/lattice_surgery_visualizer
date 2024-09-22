@@ -12,6 +12,7 @@ pub struct Output {
     pub directions: Vec<Vec<char>>,                    // direction of each path
     pub paths: Vec<Vec<(usize, usize, usize, usize)>>, // coordinates of each path
     pub max_turn: usize,                               // max turn
+    pub doc_base: svg::Document,                       // base svg
 }
 
 fn readInt(iter: &mut std::str::SplitWhitespace) -> usize {
@@ -125,6 +126,62 @@ pub fn parse_output(f: &str) -> Output {
         }
     }
     let max_turn = ts.iter().max().unwrap().clone();
+
+    let block_size = 600 / std::cmp::max(w, h);
+    let W = block_size * w;
+    let H = block_size * h;
+    let mut doc_base = svg::Document::new()
+        .set("id", "vis")
+        .set("viewBox", (-5, -5, W + 10, H + 10))
+        .set("width", W + 10)
+        .set("height", H + 10)
+        .set("style", "background-color:white");
+
+    doc_base = doc_base.add(Style::new(
+        "text {text-anchor: middle; dominant-baseline: central; user-select: none;}",
+    ));
+
+    // base grid
+    for w in 0..w {
+        for h in 0..h {
+            doc_base = doc_base.add(
+                Rectangle::new()
+                    .set("x", w * block_size)
+                    .set("y", h * block_size)
+                    .set("width", block_size)
+                    .set("height", block_size)
+                    .set("fill", "#dae3f3")
+                    .set("stroke", "#1f77b4")
+                    .set("stroke-width", 2)
+                    .add(
+                        svg::node::element::Title::new()
+                            .add(svg::node::Text::new(format!("(w, h) = ({}, {})", w, h))),
+                    ),
+            );
+        }
+    }
+
+    // add logical qubits
+    for i in 0..n {
+        doc_base = doc_base.add(
+            // add rectangle for logical qubit
+            Rectangle::new()
+                .set("x", xys[i].0 * block_size + 1)
+                .set("y", xys[i].1 * block_size + 1)
+                .set("width", block_size - 2)
+                .set("height", block_size - 2)
+                .set("fill", "#1f77b4")
+                .add(
+                    svg::node::element::Title::new().add(svg::node::Text::new(format!(
+                        "Qubit {}, (w, h) = ({}, {})",
+                        i + 1,
+                        xys[i].0,
+                        xys[i].1
+                    ))),
+                ),
+        );
+    }
+
     Output {
         w,
         h,
@@ -136,6 +193,7 @@ pub fn parse_output(f: &str) -> Output {
         directions,
         paths,
         max_turn,
+        doc_base,
     }
 }
 
@@ -164,61 +222,8 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
     ];
 
     let score = calculate_score(output);
-
     let block_size = 600 / std::cmp::max(output.w, output.h);
-    let W = block_size * output.w;
-    let H = block_size * output.h;
-    let mut doc = svg::Document::new()
-        .set("id", "vis")
-        .set("viewBox", (-5, -5, W + 10, H + 10))
-        .set("width", W + 10)
-        .set("height", H + 10)
-        .set("style", "background-color:white");
-
-    doc = doc.add(Style::new(
-        "text {text-anchor: middle; dominant-baseline: central; user-select: none;}",
-    ));
-
-    // base grid
-    for w in 0..output.w {
-        for h in 0..output.h {
-            doc = doc.add(
-                Rectangle::new()
-                    .set("x", w * block_size)
-                    .set("y", h * block_size)
-                    .set("width", block_size)
-                    .set("height", block_size)
-                    .set("fill", "#dae3f3")
-                    .set("stroke", "#1f77b4")
-                    .set("stroke-width", 2)
-                    .add(
-                        svg::node::element::Title::new()
-                            .add(svg::node::Text::new(format!("(w, h) = ({}, {})", w, h))),
-                    ),
-            );
-        }
-    }
-
-    // add logical qubits
-    for i in 0..output.n {
-        doc = doc.add(
-            // add rectangle for logical qubit
-            Rectangle::new()
-                .set("x", output.xys[i].0 * block_size + 1)
-                .set("y", output.xys[i].1 * block_size + 1)
-                .set("width", block_size - 2)
-                .set("height", block_size - 2)
-                .set("fill", "#1f77b4")
-                .add(
-                    svg::node::element::Title::new().add(svg::node::Text::new(format!(
-                        "Qubit {}, (w, h) = ({}, {})",
-                        i + 1,
-                        output.xys[i].0,
-                        output.xys[i].1
-                    ))),
-                ),
-        );
-    }
+    let mut doc = output.doc_base.clone();
 
     // add paths
     for i in 0..output.m {
@@ -323,6 +328,8 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
     }
 
     let doc2_str = if output.max_turn < 30 {
+        let W = block_size * output.w;
+
         let mut doc2 = svg::Document::new()
             .set("id", "vis2")
             .set("viewBox", (-5, -5, W + 10, 120 + 10))

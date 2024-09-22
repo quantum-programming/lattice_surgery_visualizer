@@ -82,7 +82,7 @@ const TurnSlider: FC<TurnSliderProps> = ({
       <p style={{ display: 'flex' }}>
         <input
           type="button"
-          className={styles.sliderButton}
+          className={styles.sliderButton} // eslint-disable-line
           value={sliderContent}
           onClick={onClickSliderButton}
         />
@@ -93,7 +93,7 @@ const TurnSlider: FC<TurnSliderProps> = ({
             min="1"
             max="60"
             value={sliderSpeed}
-            className={styles.speedSlider}
+            className={styles.speedSlider} // eslint-disable-line
             onChange={onChangeSliderSpeed}
           />
           fast
@@ -105,7 +105,7 @@ const TurnSlider: FC<TurnSliderProps> = ({
             value={visualizerSettingInfo.turn}
             min="0"
             max={visualizerSettingInfo.maxTurn}
-            className={styles.turnInput}
+            className={styles.turnInput} // eslint-disable-line
             onChange={onChangeTurn}
           />{' '}
         </label>
@@ -116,7 +116,7 @@ const TurnSlider: FC<TurnSliderProps> = ({
           min="0"
           max={visualizerSettingInfo.maxTurn}
           value={visualizerSettingInfo.turn}
-          className={styles.turnSlider}
+          className={styles.turnSlider} // eslint-disable-line
           onChange={onChangeTurn}
         />
       </p>
