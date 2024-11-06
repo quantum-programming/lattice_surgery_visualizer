@@ -13,8 +13,7 @@ const AHCLikeVisualizer: FC = () => {
   const [visualizerSettingInfo, setVisualizerSettingInfo] =
     useState<VisualizerSettingInfo>({
       output: [
-        '11 11',
-        '25',
+        '11 11 25 1',
         '1 1',
         '3 1',
         '5 1',
