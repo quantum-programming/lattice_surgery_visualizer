@@ -1,14 +1,16 @@
 #![allow(non_snake_case, unused_macros)]
 use svg::node::element::{Rectangle, Style, Text};
 
+const DW: usize = 50; // distance between layers in svg
+
 pub struct Output {
     pub w: usize,                         // chip size
     pub h: usize,                         // chip size
     pub n: usize,                         // number of logical qubits
-    pub d: usize,                         // number of layers
     pub xyzs: Vec<(usize, usize, usize)>, // coordinates of logical qubits
     pub m: usize,                         // max time
     pub ts: Vec<usize>,                   // time of each path
+    pub indices_per_t: Vec<Vec<usize>>,   // indices_per_t[t] = {i | ts[i]=t }
     pub targets: Vec<Vec<usize>>,         // target logical qubits of each path
     pub directions: Vec<Vec<char>>,       // direction of each path
     pub paths: Vec<Vec<Vec<usize>>>,      // coordinates of each path
@@ -153,15 +155,19 @@ pub fn parse_output(f: &str) -> Output {
         }
     }
     let max_turn = ts.iter().max().unwrap().clone();
+    // indices_per_t[t]={i | ts[i]=t}
+    let indices_per_t = (0..m).fold(vec![vec![]; max_turn + 1], |mut acc, i| {
+        acc[ts[i]].push(i);
+        acc
+    });
 
     let block_size = 600 / std::cmp::max(w, h);
-    let dW = 10;
     let W = block_size * w;
     let H = block_size * h;
     let mut doc_base = svg::Document::new()
         .set("id", "vis")
-        .set("viewBox", (-5, -5, d * W + (d - 1) * dW + 10, H + 10))
-        .set("width", d * W + (d - 1) * dW + 10)
+        .set("viewBox", (-5, -5, d * W + (d - 1) * DW + 10, H + 10))
+        .set("width", d * W + (d - 1) * DW + 10)
         .set("height", H + 10)
         .set("style", "background-color:white");
 
@@ -176,7 +182,7 @@ pub fn parse_output(f: &str) -> Output {
                 doc_base =
                     doc_base.add(
                         Rectangle::new()
-                            .set("x", (w2 + d2 * w) * block_size + dW * d2)
+                            .set("x", (w2 + d2 * w) * block_size + DW * d2)
                             .set("y", h2 * block_size)
                             .set("width", block_size)
                             .set("height", block_size)
@@ -198,7 +204,7 @@ pub fn parse_output(f: &str) -> Output {
             Rectangle::new()
                 .set(
                     "x",
-                    (xyzs[i].0 + xyzs[i].2 * w) * block_size + dW * xyzs[i].2 + 1,
+                    (xyzs[i].0 + xyzs[i].2 * w) * block_size + DW * xyzs[i].2 + 1,
                 )
                 .set("y", xyzs[i].1 * block_size + 1)
                 .set("width", block_size - 2)
@@ -216,14 +222,29 @@ pub fn parse_output(f: &str) -> Output {
         );
     }
 
+    // add vertical lines to separate layers
+    for d2 in 1..d {
+        doc_base = doc_base.add(
+            Rectangle::new()
+                .set(
+                    "x",
+                    (d2 as f64) * (W as f64) + (d2 as f64 - 1.0 + 0.45) * (DW as f64),
+                )
+                .set("y", -0.02 * H as f64)
+                .set("width", 0.1 * (DW as f64))
+                .set("height", 1.04 * H as f64)
+                .set("fill", "#111111"),
+        );
+    }
+
     Output {
         w,
         h,
         n,
-        d,
         xyzs,
         m,
         ts,
+        indices_per_t,
         targets,
         directions,
         paths,
@@ -257,47 +278,34 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
     ];
 
     let score = calculate_score(output);
-    let dW = 10;
     let block_size = 600 / std::cmp::max(output.w, output.h);
     let mut doc = output.doc_base.clone();
 
     // add paths
-    for i in 0..output.m {
-        if output.ts[i] != turn {
-            continue;
-        }
+    for &i in &output.indices_per_t[turn] {
         let path = &output.paths[i];
         for j in 0..path.len() {
             assert_eq!(path[j][2], path[j][5]);
+            let x = (std::cmp::min(path[j][0], path[j][3]) + path[j][2] * output.w) * block_size
+                + block_size / 3
+                + DW * path[j][2];
+            let y = std::cmp::min(path[j][1], path[j][4]) * block_size + block_size / 3;
+            let width = if path[j][0] == path[j][3] {
+                block_size / 3
+            } else {
+                block_size * 4 / 3
+            };
+            let height = if path[j][1] == path[j][4] {
+                block_size / 3
+            } else {
+                block_size * 4 / 3
+            };
             doc = doc.add(
                 Rectangle::new()
-                    .set(
-                        "x",
-                        (std::cmp::min(path[j][0], path[j][3]) + path[j][2] * output.w)
-                            * block_size
-                            + block_size / 3
-                            + dW * path[j][2],
-                    )
-                    .set(
-                        "y",
-                        std::cmp::min(path[j][1], path[j][4]) * block_size + block_size / 3,
-                    )
-                    .set(
-                        "width",
-                        if path[j][0] == path[j][3] {
-                            block_size / 3
-                        } else {
-                            block_size * 4 / 3
-                        },
-                    )
-                    .set(
-                        "height",
-                        if path[j][1] == path[j][4] {
-                            block_size / 3
-                        } else {
-                            block_size * 4 / 3
-                        },
-                    )
+                    .set("x", x)
+                    .set("y", y)
+                    .set("width", width)
+                    .set("height", height)
                     .set("fill", colorMap[i % colorMap.len()])
                     .set("rx", block_size / 6)
                     .set("ry", block_size / 6)
@@ -318,7 +326,7 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
                     "x",
                     (output.xyzs[i].0 + output.xyzs[i].2 * output.w) * block_size
                         + block_size / 2
-                        + dW * output.xyzs[i].2,
+                        + DW * output.xyzs[i].2,
                 )
                 .set("y", output.xyzs[i].1 * block_size + block_size / 2)
                 .set("fill", "black")
@@ -328,11 +336,7 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
     }
 
     // add connection
-    for i in 0..output.m {
-        if output.ts[i] != turn {
-            continue;
-        }
-
+    for &i in &output.indices_per_t[turn] {
         let target = &output.targets[i];
         let direction = &output.directions[i];
         for j in 0..target.len() {
@@ -341,7 +345,7 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
                 doc = add_connection(
                     doc,
                     (output.xyzs[target[j]].0 + output.xyzs[target[j]].2 * output.w) * block_size
-                        + dW * output.xyzs[target[j]].2
+                        + DW * output.xyzs[target[j]].2
                         + 1,
                     output.xyzs[target[j]].1 * block_size + 1,
                     block_size / 8,
@@ -351,7 +355,7 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
                     doc,
                     (output.xyzs[target[j]].0 + output.xyzs[target[j]].2 * output.w) * block_size
                         + block_size * 7 / 8
-                        + dW * output.xyzs[target[j]].2,
+                        + DW * output.xyzs[target[j]].2,
                     output.xyzs[target[j]].1 * block_size + 1,
                     block_size / 8,
                     block_size - 2,
@@ -361,7 +365,7 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
                 doc = add_connection(
                     doc,
                     (output.xyzs[target[j]].0 + output.xyzs[target[j]].2 * output.w) * block_size
-                        + dW * output.xyzs[target[j]].2
+                        + DW * output.xyzs[target[j]].2
                         + 1,
                     output.xyzs[target[j]].1 * block_size + 1,
                     block_size - 2,
@@ -370,7 +374,7 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
                 doc = add_connection(
                     doc,
                     (output.xyzs[target[j]].0 + output.xyzs[target[j]].2 * output.w) * block_size
-                        + dW * output.xyzs[target[j]].2
+                        + DW * output.xyzs[target[j]].2
                         + 1,
                     output.xyzs[target[j]].1 * block_size + block_size * 7 / 8,
                     block_size - 2,
