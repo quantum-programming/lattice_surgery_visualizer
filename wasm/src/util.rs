@@ -1,160 +1,108 @@
 #![allow(non_snake_case, unused_macros)]
-use svg::node::element::{Rectangle, Style, Text};
+use std::mem::swap;
+
+use svg::{
+    node::element::{Rectangle, Style, Text},
+    Node,
+};
 
 const DW: usize = 50; // distance between layers in svg
 
-pub struct Output {
-    pub w: usize,                         // chip size
-    pub h: usize,                         // chip size
-    pub n: usize,                         // number of logical qubits
-    pub xyzs: Vec<(usize, usize, usize)>, // coordinates of logical qubits
-    pub m: usize,                         // max time
-    pub ts: Vec<usize>,                   // time of each path
-    pub indices_per_t: Vec<Vec<usize>>,   // indices_per_t[t] = {i | ts[i]=t }
-    pub targets: Vec<Vec<usize>>,         // target logical qubits of each path
-    pub directions: Vec<Vec<char>>,       // direction of each path
-    pub paths: Vec<Vec<Vec<usize>>>,      // coordinates of each path
-    pub max_turn: usize,                  // max turn
-    pub doc_base: svg::Document,          // base svg
+fn readInt(iter: &mut std::str::SplitWhitespace) -> isize {
+    iter.next().unwrap().parse().unwrap()
 }
 
-fn readInt(iter: &mut std::str::SplitWhitespace) -> usize {
-    iter.next().unwrap().parse().unwrap()
+#[derive(Clone, Copy, Debug)]
+pub struct XYZ {
+    pub x: usize,
+    pub y: usize,
+    pub z: usize,
+}
+
+impl XYZ {
+    pub fn new(x: usize, y: usize, z: usize) -> XYZ {
+        XYZ { x, y, z }
+    }
+
+    pub fn from(iter: &mut std::str::SplitWhitespace, w: usize, h: usize, l: usize) -> XYZ {
+        let x = readInt(iter) as usize;
+        let y = readInt(iter) as usize;
+        let z = readInt(iter) as usize;
+        assert!(x < w && y < h && z < l);
+        XYZ { x, y, z }
+    }
+}
+
+pub struct Output {
+    pub w: usize,                       // chip size
+    pub h: usize,                       // chip size
+    pub n: usize,                       // number of logical qubits
+    pub xyzs: Vec<XYZ>,                 // coordinates of logical qubits
+    pub m: usize,                       // max time
+    pub ts: Vec<usize>,                 // time of each path
+    pub indices_per_t: Vec<Vec<usize>>, // indices_per_t[t] = {i | ts[i]=t }
+    pub targets: Vec<Vec<usize>>,       // target logical qubits of each path
+    pub dirs: Vec<Vec<char>>,           // direction of each path
+    pub paths: Vec<Vec<(XYZ, XYZ)>>,    // path of each path
+    pub max_turn: usize,                // max turn
+    pub doc_base: svg::Document,        // base svg
 }
 
 pub fn parse_output(f: &str) -> Output {
     let mut iter = f.split_whitespace();
-    let w = readInt(&mut iter);
-    let h = readInt(&mut iter);
-    let n = readInt(&mut iter);
-    let d = readInt(&mut iter);
-    let mut xyzs = vec![(0, 0, 0); n];
+
+    // chip info
+    let n = readInt(&mut iter) as usize;
+    let w = readInt(&mut iter) as usize;
+    let h = readInt(&mut iter) as usize;
+    let l = readInt(&mut iter) as usize;
+
+    // data qubit positions
+    let mut xyzs = vec![XYZ::new(0, 0, 0); n];
     for i in 0..n {
-        if d == 1 {
-            xyzs[i] = (readInt(&mut iter), readInt(&mut iter), 0);
-        } else {
-            xyzs[i] = (readInt(&mut iter), readInt(&mut iter), readInt(&mut iter));
-        }
-        assert!(xyzs[i].0 < w);
-        assert!(xyzs[i].1 < h);
-        assert!(xyzs[i].2 < d);
+        xyzs[i] = XYZ::from(&mut iter, w, h, l);
     }
-    let m = readInt(&mut iter);
-    let mut targets = vec![vec![]; m];
-    let mut directions = vec![vec![]; m];
+
+    let m = readInt(&mut iter) as usize;
     let mut ts = vec![0; m];
-    let mut paths = vec![vec![vec![]; 0]; m];
+    let mut targets = vec![vec![]; m];
+    let mut dirs = vec![vec![]; m];
+    let mut paths = vec![vec![]; m];
     for i in 0..m {
-        targets[i] = vec![0; readInt(&mut iter)];
-        directions[i] = vec![' '; targets[i].len()];
-        ts[i] = readInt(&mut iter);
-        let mut _path = vec![(0, 0, 0); readInt(&mut iter)];
+        ts[i] = readInt(&mut iter) as usize;
+
+        targets[i] = vec![0; readInt(&mut iter) as usize];
         for j in 0..targets[i].len() {
-            targets[i][j] = readInt(&mut iter);
+            targets[i][j] = readInt(&mut iter) as usize;
         }
-        for j in 0..directions[i].len() {
-            directions[i][j] = iter.next().unwrap().chars().next().unwrap();
+
+        dirs[i] = vec![' '; targets[i].len()];
+        for j in 0..dirs[i].len() {
+            dirs[i][j] = iter.next().unwrap().chars().next().unwrap();
         }
+
+        let mut _path = vec![XYZ::new(0, 0, 0); readInt(&mut iter) as usize];
         for j in 0.._path.len() {
-            if d == 1 {
-                _path[j] = (readInt(&mut iter), readInt(&mut iter), 0);
-            } else {
-                _path[j] = (readInt(&mut iter), readInt(&mut iter), readInt(&mut iter));
+            _path[j] = XYZ::from(&mut iter, w, h, l);
+        }
+
+        let edgeCnt = readInt(&mut iter);
+        if edgeCnt == -1 {
+            for j in 0.._path.len() - 1 {
+                paths[i].push((_path[j], _path[j + 1]));
+            }
+        } else {
+            for _ in 0..edgeCnt {
+                let u = readInt(&mut iter) as usize;
+                let v = readInt(&mut iter) as usize;
+                paths[i].push((_path[u], _path[v]));
             }
         }
-        if _path.len() == 0 {
-            // target - target
-            for j1 in 0..targets[i].len() {
-                for j2 in j1 + 1..targets[i].len() {
-                    if xyzs[targets[i][j1]].2 == xyzs[targets[i][j2]].2
-                        && xyzs[targets[i][j1]].0 == xyzs[targets[i][j2]].0
-                        && xyzs[targets[i][j1]].1.abs_diff(xyzs[targets[i][j2]].1) == 1
-                        && directions[i][j1] == 'V'
-                        && directions[i][j2] == 'V'
-                    {
-                        paths[i].push(vec![
-                            xyzs[targets[i][j1]].0,
-                            xyzs[targets[i][j1]].1,
-                            xyzs[targets[i][j1]].2,
-                            xyzs[targets[i][j2]].0,
-                            xyzs[targets[i][j2]].1,
-                            xyzs[targets[i][j2]].2,
-                        ]);
-                    }
-                    if xyzs[targets[i][j1]].2 == xyzs[targets[i][j2]].2
-                        && xyzs[targets[i][j1]].1 == xyzs[targets[i][j2]].1
-                        && xyzs[targets[i][j1]].0.abs_diff(xyzs[targets[i][j2]].0) == 1
-                        && directions[i][j1] == 'H'
-                        && directions[i][j2] == 'H'
-                    {
-                        paths[i].push(vec![
-                            xyzs[targets[i][j1]].0,
-                            xyzs[targets[i][j1]].1,
-                            xyzs[targets[i][j1]].2,
-                            xyzs[targets[i][j2]].0,
-                            xyzs[targets[i][j2]].1,
-                            xyzs[targets[i][j2]].2,
-                        ]);
-                    }
-                }
-            }
-            continue;
-        }
-        // path - path
-        let mut grid = vec![vec![vec![-1; w]; h]; d];
-        for j in 0.._path.len() {
-            grid[_path[j].2][_path[j].1][_path[j].0] = j as i32;
-        }
-        for z in 0..d {
-            for y in 0..h {
-                for x in 0..w {
-                    if grid[z][y][x] == -1 {
-                        continue;
-                    }
-                    if x + 1 < w && grid[z][y][x + 1] != -1 {
-                        paths[i].push(vec![x, y, z, x + 1, y, z]);
-                    }
-                    if y + 1 < h && grid[z][y + 1][x] != -1 {
-                        paths[i].push(vec![x, y, z, x, y + 1, z]);
-                    }
-                }
-            }
-        }
-        // path - target
-        for j1 in 0..targets[i].len() {
-            for j2 in 0.._path.len() {
-                if xyzs[targets[i][j1]].2 == _path[j2].2
-                    && xyzs[targets[i][j1]].0 == _path[j2].0
-                    && xyzs[targets[i][j1]].1.abs_diff(_path[j2].1) == 1
-                    && directions[i][j1] == 'V'
-                {
-                    paths[i].push(vec![
-                        xyzs[targets[i][j1]].0,
-                        xyzs[targets[i][j1]].1,
-                        xyzs[targets[i][j1]].2,
-                        _path[j2].0,
-                        _path[j2].1,
-                        _path[j2].2,
-                    ]);
-                }
-                if xyzs[targets[i][j1]].2 == _path[j2].2
-                    && xyzs[targets[i][j1]].1 == _path[j2].1
-                    && xyzs[targets[i][j1]].0.abs_diff(_path[j2].0) == 1
-                    && directions[i][j1] == 'H'
-                {
-                    paths[i].push(vec![
-                        xyzs[targets[i][j1]].0,
-                        xyzs[targets[i][j1]].1,
-                        xyzs[targets[i][j1]].2,
-                        _path[j2].0,
-                        _path[j2].1,
-                        _path[j2].2,
-                    ]);
-                }
-            }
-        }
+        paths[i].sort_by_key(|&x| x.0.z != x.1.z);
     }
+
     let max_turn = ts.iter().max().unwrap().clone();
+
     // indices_per_t[t]={i | ts[i]=t}
     let indices_per_t = (0..m).fold(vec![vec![]; max_turn + 1], |mut acc, i| {
         acc[ts[i]].push(i);
@@ -166,8 +114,8 @@ pub fn parse_output(f: &str) -> Output {
     let H = block_size * h;
     let mut doc_base = svg::Document::new()
         .set("id", "vis")
-        .set("viewBox", (-5, -5, d * W + (d - 1) * DW + 10, H + 10))
-        .set("width", d * W + (d - 1) * DW + 10)
+        .set("viewBox", (-5, -5, l * W + (l - 1) * DW + 10, H + 10))
+        .set("width", l * W + (l - 1) * DW + 10)
         .set("height", H + 10)
         .set("style", "background-color:white");
 
@@ -176,7 +124,7 @@ pub fn parse_output(f: &str) -> Output {
     ));
 
     // base grid
-    for d2 in 0..d {
+    for d2 in 0..l {
         for w2 in 0..w {
             for h2 in 0..h {
                 doc_base =
@@ -190,40 +138,40 @@ pub fn parse_output(f: &str) -> Output {
                             .set("stroke", "#1f77b4")
                             .set("stroke-width", 2)
                             .add(svg::node::element::Title::new().add(svg::node::Text::new(
-                                format!("(d, w, h) = ({}, {}, {})", d2, w2, h2),
+                                format!("(l, w, h) = ({}, {}, {})", d2, w2, h2),
                             ))),
                     );
             }
         }
     }
 
-    // add logical qubits
+    // add logical data qubits
     for i in 0..n {
         doc_base = doc_base.add(
             // add rectangle for logical qubit
             Rectangle::new()
                 .set(
                     "x",
-                    (xyzs[i].0 + xyzs[i].2 * w) * block_size + DW * xyzs[i].2 + 1,
+                    (xyzs[i].x + xyzs[i].z * w) * block_size + DW * xyzs[i].z + 1,
                 )
-                .set("y", xyzs[i].1 * block_size + 1)
+                .set("y", xyzs[i].y * block_size + 1)
                 .set("width", block_size - 2)
                 .set("height", block_size - 2)
                 .set("fill", "#1f77b4")
                 .add(
                     svg::node::element::Title::new().add(svg::node::Text::new(format!(
-                        "Qubit {}, (d, w, h) = ({}, {}, {})",
+                        "Qubit {}, (l, w, h) = ({}, {}, {})",
                         i + 1,
-                        xyzs[i].2,
-                        xyzs[i].0,
-                        xyzs[i].1
+                        xyzs[i].z,
+                        xyzs[i].x,
+                        xyzs[i].y
                     ))),
                 ),
         );
     }
 
     // add vertical lines to separate layers
-    for d2 in 1..d {
+    for d2 in 1..l {
         doc_base = doc_base.add(
             Rectangle::new()
                 .set(
@@ -246,7 +194,7 @@ pub fn parse_output(f: &str) -> Output {
         ts,
         indices_per_t,
         targets,
-        directions,
+        dirs,
         paths,
         max_turn,
         doc_base,
@@ -257,15 +205,13 @@ fn calculate_score(output: &Output) -> i64 {
     output.max_turn as i64
 }
 
-fn add_connection(doc: svg::Document, x: usize, y: usize, w: usize, h: usize) -> svg::Document {
-    return doc.add(
-        Rectangle::new()
-            .set("x", x)
-            .set("y", y)
-            .set("width", w)
-            .set("height", h)
-            .set("fill", "#dae3f3"),
-    );
+fn make_connection(x: usize, y: usize, w: usize, h: usize) -> Rectangle {
+    return Rectangle::new()
+        .set("x", x)
+        .set("y", y)
+        .set("width", w)
+        .set("height", h)
+        .set("fill", "#dae3f3");
 }
 
 pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
@@ -285,22 +231,49 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
     for &i in &output.indices_per_t[turn] {
         let path = &output.paths[i];
         for j in 0..path.len() {
-            assert_eq!(path[j][2], path[j][5]);
-            let x = (std::cmp::min(path[j][0], path[j][3]) + path[j][2] * output.w) * block_size
-                + block_size / 3
-                + DW * path[j][2];
-            let y = std::cmp::min(path[j][1], path[j][4]) * block_size + block_size / 3;
-            let width = if path[j][0] == path[j][3] {
+            let mut u = path[j].0;
+            let mut v = path[j].1;
+
+            if u.z != v.z {
+                if u.z > v.z {
+                    swap(&mut u, &mut v);
+                }
+                let x = (u.x + u.z * output.w) * block_size + DW * u.z;
+                let x2 = (v.x + v.z * output.w) * block_size + DW * v.z;
+                let y = u.y * block_size;
+                doc.append(
+                    Text::new()
+                        .set("x", x + block_size / 2)
+                        .set("y", y + block_size / 2)
+                        .set("font-size", block_size / 3)
+                        .add(svg::node::Text::new("◉")),
+                );
+                doc.append(
+                    Text::new()
+                        .set("x", x2 + block_size / 2)
+                        .set("y", y + block_size / 2)
+                        .set("font-size", block_size / 3)
+                        .add(svg::node::Text::new("⊗")),
+                );
+
+                continue;
+            }
+
+            assert_eq!(u.z, v.z);
+            let x =
+                (std::cmp::min(u.x, v.x) + u.z * output.w) * block_size + block_size / 3 + DW * u.z;
+            let y = std::cmp::min(u.y, v.y) * block_size + block_size / 3;
+            let width = if u.x == v.x {
                 block_size / 3
             } else {
                 block_size * 4 / 3
             };
-            let height = if path[j][1] == path[j][4] {
+            let height = if u.y == v.y {
                 block_size / 3
             } else {
                 block_size * 4 / 3
             };
-            doc = doc.add(
+            doc.append(
                 Rectangle::new()
                     .set("x", x)
                     .set("y", y)
@@ -319,16 +292,16 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
 
     // add logical qubits (text)
     for i in 0..output.n {
-        doc = doc.add(
+        doc.append(
             // add text for logical qubit
             Text::new()
                 .set(
                     "x",
-                    (output.xyzs[i].0 + output.xyzs[i].2 * output.w) * block_size
+                    (output.xyzs[i].x + output.xyzs[i].z * output.w) * block_size
                         + block_size / 2
-                        + DW * output.xyzs[i].2,
+                        + DW * output.xyzs[i].z,
                 )
-                .set("y", output.xyzs[i].1 * block_size + block_size / 2)
+                .set("y", output.xyzs[i].y * block_size + block_size / 2)
                 .set("fill", "black")
                 .set("font-size", block_size / 2)
                 .add(svg::node::Text::new(format!("{}", i + 1))),
@@ -338,48 +311,44 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
     // add connection
     for &i in &output.indices_per_t[turn] {
         let target = &output.targets[i];
-        let direction = &output.directions[i];
+        let direction = &output.dirs[i];
         for j in 0..target.len() {
             if direction[j] == 'H' {
                 // Horizontal (right side and left side)
-                doc = add_connection(
-                    doc,
-                    (output.xyzs[target[j]].0 + output.xyzs[target[j]].2 * output.w) * block_size
-                        + DW * output.xyzs[target[j]].2
+                doc.append(make_connection(
+                    (output.xyzs[target[j]].x + output.xyzs[target[j]].z * output.w) * block_size
+                        + DW * output.xyzs[target[j]].z
                         + 1,
-                    output.xyzs[target[j]].1 * block_size + 1,
+                    output.xyzs[target[j]].y * block_size + 1,
                     block_size / 8,
                     block_size - 2,
-                );
-                doc = add_connection(
-                    doc,
-                    (output.xyzs[target[j]].0 + output.xyzs[target[j]].2 * output.w) * block_size
+                ));
+                doc.append(make_connection(
+                    (output.xyzs[target[j]].x + output.xyzs[target[j]].z * output.w) * block_size
                         + block_size * 7 / 8
-                        + DW * output.xyzs[target[j]].2,
-                    output.xyzs[target[j]].1 * block_size + 1,
+                        + DW * output.xyzs[target[j]].z,
+                    output.xyzs[target[j]].y * block_size + 1,
                     block_size / 8,
                     block_size - 2,
-                );
+                ));
             } else {
                 // Vertical (top side and bottom side)
-                doc = add_connection(
-                    doc,
-                    (output.xyzs[target[j]].0 + output.xyzs[target[j]].2 * output.w) * block_size
-                        + DW * output.xyzs[target[j]].2
+                doc.append(make_connection(
+                    (output.xyzs[target[j]].x + output.xyzs[target[j]].z * output.w) * block_size
+                        + DW * output.xyzs[target[j]].z
                         + 1,
-                    output.xyzs[target[j]].1 * block_size + 1,
+                    output.xyzs[target[j]].y * block_size + 1,
                     block_size - 2,
                     block_size / 8,
-                );
-                doc = add_connection(
-                    doc,
-                    (output.xyzs[target[j]].0 + output.xyzs[target[j]].2 * output.w) * block_size
-                        + DW * output.xyzs[target[j]].2
+                ));
+                doc.append(make_connection(
+                    (output.xyzs[target[j]].x + output.xyzs[target[j]].z * output.w) * block_size
+                        + DW * output.xyzs[target[j]].z
                         + 1,
-                    output.xyzs[target[j]].1 * block_size + block_size * 7 / 8,
+                    output.xyzs[target[j]].y * block_size + block_size * 7 / 8,
                     block_size - 2,
                     block_size / 8,
-                );
+                ));
             }
         }
     }
@@ -394,12 +363,12 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
             .set("height", 120 + 10)
             .set("style", "background-color:white");
 
-        doc2 = doc2.add(Style::new(
+        doc2.append(Style::new(
             "text {text-anchor: middle; dominant-baseline: central; user-select: none;}",
         ));
 
         for i in 0..output.m {
-            doc2 = doc2.add(
+            doc2.append(
                 Rectangle::new()
                     .set("x", W * i / output.m)
                     .set(
