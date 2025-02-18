@@ -31,6 +31,27 @@ impl XYZ {
     }
 }
 
+// Extracted function to convert RGB floats to hex color code
+fn rgb_to_hex(r: f64, g: f64, b: f64) -> String {
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        (r * 255.0).round() as u8,
+        (g * 255.0).round() as u8,
+        (b * 255.0).round() as u8
+    )
+}
+
+// Extracted function to interpolate color values
+fn interpolate_color(val: f64, data: &[(f64, f64, f64)]) -> f64 {
+    for i in 0..data.len() - 1 {
+        if data[i].0 <= val && val <= data[i + 1].0 {
+            let ratio = (val - data[i].0) / (data[i + 1].0 - data[i].0);
+            return data[i].2 + (data[i + 1].1 - data[i].2) * ratio;
+        }
+    }
+    panic!("Value out of range or unexpected error");
+}
+
 fn get_jet(val: f64) -> String {
     let jet_data = vec![
         (
@@ -66,40 +87,22 @@ fn get_jet(val: f64) -> String {
         ),
     ];
 
-    let mut floats = Vec::new();
-
-    for (_, data) in jet_data.iter() {
-        for i in 0..data.len() - 1 {
-            if data[i].0 <= val && val <= data[i + 1].0 {
-                let ratio = (val - data[i].0) / (data[i + 1].0 - data[i].0);
-                floats.push(data[i].2 + (data[i + 1].1 - data[i].2) * ratio);
-                break;
-            }
-        }
-    }
-
-    if floats.len() != 3 {
-        panic!("Value out of range or unexpected error");
-    }
-
-    // RGBを16進カラーコードに変換
-    let r = (floats[0] * 255.0).round() as u8;
-    let g = (floats[1] * 255.0).round() as u8;
-    let b = (floats[2] * 255.0).round() as u8;
-    let hex_color = format!("#{:02x}{:02x}{:02x}", r, g, b);
-
-    hex_color
+    let floats: Vec<f64> = jet_data
+        .iter()
+        .map(|(_, data)| interpolate_color(val, data))
+        .collect();
+    rgb_to_hex(floats[0], floats[1], floats[2])
 }
 
 const DW: usize = 50; // distance between layers in svg
 pub fn add_qubit_id_texts(
     doc_base: &mut svg::Document,
     w: usize,
-    n: usize,
+    n1: usize,
     xyzs: &Vec<XYZ>,
     block_size: usize,
 ) {
-    for i in 0..n {
+    for i in 0..n1 {
         doc_base.append(
             Text::new()
                 .set(
@@ -114,11 +117,37 @@ pub fn add_qubit_id_texts(
     }
 }
 
+// Extracted function to add a rectangle to the document
+fn add_rectangle(
+    doc: &mut svg::Document,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    fill: &str,
+    stroke: &str,
+    stroke_width: usize,
+    title: &str,
+) {
+    doc.append(
+        Rectangle::new()
+            .set("x", x)
+            .set("y", y)
+            .set("width", width)
+            .set("height", height)
+            .set("fill", fill)
+            .set("stroke", stroke)
+            .set("stroke-width", stroke_width)
+            .add(svg::node::element::Title::new().add(svg::node::Text::new(title))),
+    );
+}
+
 pub fn make_doc_base(
     l: usize,
     w: usize,
     h: usize,
-    n: usize,
+    n1: usize,
+    n2: usize,
     xyzs: &Vec<XYZ>,
     block_size: usize,
     W: usize,
@@ -130,61 +159,74 @@ pub fn make_doc_base(
         .set("viewBox", (-5, -5, l * W + (l - 1) * DW + 10, H + 10))
         .set("width", l * W + (l - 1) * DW + 10)
         .set("height", H + 10)
-        .set("style", "background-color:white");
-
-    doc_base = doc_base.add(Style::new(
-        "text {text-anchor: middle; dominant-baseline: central; user-select: none;}",
-    ));
+        .set("style", "background-color:white")
+        .add(Style::new(
+            "text {text-anchor: middle; dominant-baseline: central; user-select: none;}",
+        ));
 
     // base grid
     for d2 in 0..l {
         for w2 in 0..w {
             for h2 in 0..h {
-                doc_base =
-                    doc_base.add(
-                        Rectangle::new()
-                            .set("x", (w2 + d2 * w) * block_size + DW * d2)
-                            .set("y", h2 * block_size)
-                            .set("width", block_size)
-                            .set("height", block_size)
-                            .set("fill", "#dae3f3")
-                            .set("stroke", "#1f77b4")
-                            .set("stroke-width", 2)
-                            .add(svg::node::element::Title::new().add(svg::node::Text::new(
-                                format!("(l, w, h) = ({}, {}, {})", d2, w2, h2),
-                            ))),
-                    );
+                add_rectangle(
+                    &mut doc_base,
+                    (w2 + d2 * w) * block_size + DW * d2,
+                    h2 * block_size,
+                    block_size,
+                    block_size,
+                    "#dae3f3",
+                    "#1f77b4",
+                    2,
+                    &format!("(l, w, h) = ({}, {}, {})", d2, w2, h2),
+                );
             }
         }
     }
 
     // add logical data qubits
-    for i in 0..n {
+    for i in 0..n1 {
         let color = if is_first {
-            get_jet((i as f64) / (n as f64))
+            get_jet((i as f64) / (n1 as f64))
         } else {
             "#1f77b4".to_string()
         };
-        doc_base = doc_base.add(
-            // add rectangle for logical qubit
-            Rectangle::new()
-                .set(
-                    "x",
-                    (xyzs[i].x + xyzs[i].z * w) * block_size + DW * xyzs[i].z + 1,
-                )
-                .set("y", xyzs[i].y * block_size + 1)
-                .set("width", block_size - 2)
-                .set("height", block_size - 2)
-                .set("fill", color)
-                .add(
-                    svg::node::element::Title::new().add(svg::node::Text::new(format!(
-                        "Qubit {}, (l, w, h) = ({}, {}, {})",
-                        i + 1,
-                        xyzs[i].z,
-                        xyzs[i].x,
-                        xyzs[i].y
-                    ))),
-                ),
+        add_rectangle(
+            &mut doc_base,
+            (xyzs[i].x + xyzs[i].z * w) * block_size + DW * xyzs[i].z + 1,
+            xyzs[i].y * block_size + 1,
+            block_size - 2,
+            block_size - 2,
+            &color,
+            "",
+            0,
+            &format!(
+                "Qubit {}, (l, w, h) = ({}, {}, {})",
+                i + 1,
+                xyzs[i].z,
+                xyzs[i].x,
+                xyzs[i].y
+            ),
+        );
+    }
+
+    // add magic state factory qubits
+    for i in n1..n1 + n2 {
+        add_rectangle(
+            &mut doc_base,
+            (xyzs[i].x + xyzs[i].z * w) * block_size + DW * xyzs[i].z + 1,
+            xyzs[i].y * block_size + 1,
+            block_size - 2,
+            block_size - 2,
+            "#ff7f0e",
+            "",
+            0,
+            &format!(
+                "Qubit {}, (l, w, h) = ({}, {}, {})",
+                i + 1,
+                xyzs[i].z,
+                xyzs[i].x,
+                xyzs[i].y
+            ),
         );
     }
 
@@ -204,7 +246,7 @@ pub fn make_doc_base(
     }
 
     if is_first {
-        add_qubit_id_texts(&mut doc_base, w, n, xyzs, block_size);
+        add_qubit_id_texts(&mut doc_base, w, n1, xyzs, block_size);
     }
 
     doc_base
@@ -214,14 +256,15 @@ pub struct Output {
     pub l: usize,                       // number of layers
     pub w: usize,                       // chip size
     pub h: usize,                       // chip size
-    pub n: usize,                       // number of logical qubits
+    pub n1: usize,                      // number of logical qubits
+    pub n2: usize,                      // number of magic state factory
     pub xyzs: Vec<XYZ>,                 // coordinates of logical qubits
     pub m: usize,                       // max time
     pub ts: Vec<usize>,                 // time of each path
     pub indices_per_t: Vec<Vec<usize>>, // indices_per_t[t] = {i | ts[i]=t }
-    pub targets: Vec<Vec<usize>>,       // target logical qubits of each path
-    pub dirs: Vec<Vec<char>>,           // direction of each path
-    pub paths: Vec<Vec<(XYZ, XYZ)>>,    // path of each path
+    pub targets: Vec<Vec<usize>>,       // qubit indices of each path
+    pub dirs: Vec<Vec<char>>,           // starting directions of each path
+    pub paths: Vec<Vec<(XYZ, XYZ)>>,    // edges of each path
     pub max_turn: usize,                // max turn
     pub doc_base: svg::Document,        // base svg
 }
@@ -230,14 +273,15 @@ pub fn parse_output(f: &str) -> Output {
     let mut iter = f.split_whitespace();
 
     // chip info
-    let n = readInt(&mut iter) as usize;
     let w = readInt(&mut iter) as usize;
     let h = readInt(&mut iter) as usize;
     let l = readInt(&mut iter) as usize;
 
     // data qubit positions
-    let mut xyzs = vec![XYZ::new(0, 0, 0); n];
-    for i in 0..n {
+    let n1 = readInt(&mut iter) as usize;
+    let n2 = readInt(&mut iter) as usize;
+    let mut xyzs = vec![XYZ::new(0, 0, 0); n1 + n2];
+    for i in 0..(n1 + n2) {
         xyzs[i] = XYZ::from(&mut iter, w, h, l);
     }
 
@@ -264,18 +308,10 @@ pub fn parse_output(f: &str) -> Output {
             _path[j] = XYZ::from(&mut iter, w, h, l);
         }
 
-        let edgeCnt = readInt(&mut iter);
-        if edgeCnt == -1 {
-            for j in 0.._path.len() - 1 {
-                paths[i].push((_path[j], _path[j + 1]));
-            }
-        } else {
-            for _ in 0..edgeCnt {
-                let u = readInt(&mut iter) as usize;
-                let v = readInt(&mut iter) as usize;
-                paths[i].push((_path[u], _path[v]));
-            }
+        for j in 0.._path.len() - 1 {
+            paths[i].push((_path[j], _path[j + 1]));
         }
+
         paths[i].sort_by_key(|&x| x.0.z != x.1.z);
     }
 
@@ -290,13 +326,14 @@ pub fn parse_output(f: &str) -> Output {
     let block_size = 600 / std::cmp::max(w, h);
     let W = block_size * w;
     let H = block_size * h;
-    let doc_base = make_doc_base(l, w, h, n, &xyzs, block_size, W, H, false);
+    let doc_base = make_doc_base(l, w, h, n1, n2, &xyzs, block_size, W, H, false);
 
     Output {
         l,
         w,
         h,
-        n,
+        n1,
+        n2,
         xyzs,
         m,
         ts,
@@ -314,12 +351,12 @@ fn calculate_score(output: &Output) -> i64 {
 }
 
 fn make_connection(x: usize, y: usize, w: usize, h: usize) -> Rectangle {
-    return Rectangle::new()
+    Rectangle::new()
         .set("x", x)
         .set("y", y)
         .set("width", w)
         .set("height", h)
-        .set("fill", "#dae3f3");
+        .set("fill", "#dae3f3")
 }
 
 pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
@@ -399,7 +436,7 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
     }
 
     // add logical qubits (text)
-    add_qubit_id_texts(&mut doc, output.w, output.n, &output.xyzs, block_size);
+    add_qubit_id_texts(&mut doc, output.w, output.n1, &output.xyzs, block_size);
 
     // add connection
     for &i in &output.indices_per_t[turn] {
@@ -451,7 +488,8 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
             output.l,
             output.w,
             output.h,
-            output.n,
+            output.n1,
+            output.n2,
             &output.xyzs,
             block_size,
             block_size * output.w,
