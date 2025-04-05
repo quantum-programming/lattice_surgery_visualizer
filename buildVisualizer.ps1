@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 Set-Location wasm
-wasm-pack build --target web --out-dir ../public/wasm
+wasm-pack build --dev --target web --out-dir ../public/wasm
 
 $confirm = Read-Host "Do you want to visualize? (Y/N)"
 

@@ -38,6 +38,13 @@ yarn dev # Run the server
 
 Then, the web app will be hosted on your local machine. Please access the URL displayed on the console. You will see the visualizer in the initial state.
 
+## For GitHub Pages
+
+```bash
+npm run build
+npm run deploy
+```
+
 ## LICENSE
 
 This software is released under the MIT License, see [LICENSE](./LICENSE).

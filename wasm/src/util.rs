@@ -1,5 +1,4 @@
 #![allow(non_snake_case, unused_macros)]
-use std::mem::swap;
 
 use svg::{
     node::element::{Rectangle, Style, Text},
@@ -253,20 +252,16 @@ pub fn make_doc_base(
 }
 
 pub struct Output {
-    pub l: usize,                       // number of layers
-    pub w: usize,                       // chip size
-    pub h: usize,                       // chip size
-    pub n1: usize,                      // number of logical qubits
-    pub n2: usize,                      // number of magic state factory
-    pub xyzs: Vec<XYZ>,                 // coordinates of logical qubits
-    pub m: usize,                       // max time
-    pub ts: Vec<usize>,                 // time of each path
-    pub indices_per_t: Vec<Vec<usize>>, // indices_per_t[t] = {i | ts[i]=t }
-    pub targets: Vec<Vec<usize>>,       // qubit indices of each path
-    pub dirs: Vec<Vec<char>>,           // starting directions of each path
-    pub paths: Vec<Vec<(XYZ, XYZ)>>,    // edges of each path
-    pub max_turn: usize,                // max turn
-    pub doc_base: svg::Document,        // base svg
+    pub l: usize,                           // number of layers
+    pub w: usize,                           // chip size
+    pub h: usize,                           // chip size
+    pub n1: usize,                          // number of logical qubits
+    pub n2: usize,                          // number of magic state factory
+    pub xyzs: Vec<XYZ>,                     // coordinates of logical qubits
+    pub targets: Vec<Vec<usize>>,           // target qubits of each path
+    pub paths: Vec<Vec<(usize, XYZ, XYZ)>>, // edges of each path
+    pub max_turn: usize,                    // max turn
+    pub doc_base: svg::Document,            // base svg
 }
 
 pub fn parse_output(f: &str) -> Output {
@@ -280,48 +275,67 @@ pub fn parse_output(f: &str) -> Output {
     // data qubit positions
     let n1 = readInt(&mut iter) as usize;
     let n2 = readInt(&mut iter) as usize;
-    let mut xyzs = vec![XYZ::new(0, 0, 0); n1 + n2];
-    for i in 0..(n1 + n2) {
-        xyzs[i] = XYZ::from(&mut iter, w, h, l);
+    let total = n1 + n2;
+    let mut xyzs: Vec<XYZ> = Vec::with_capacity(total);
+    for _ in 0..total {
+        xyzs.push(XYZ::from(&mut iter, w, h, l));
     }
 
     let m = readInt(&mut iter) as usize;
-    let mut ts = vec![0; m];
-    let mut targets = vec![vec![]; m];
-    let mut dirs = vec![vec![]; m];
-    let mut paths = vec![vec![]; m];
-    for i in 0..m {
-        ts[i] = readInt(&mut iter) as usize;
+    let max_turn = (readInt(&mut iter) as usize) + 1;
 
-        targets[i] = vec![0; readInt(&mut iter) as usize];
-        for j in 0..targets[i].len() {
-            targets[i][j] = readInt(&mut iter) as usize;
+    let mut targets = Vec::with_capacity(m);
+    let mut paths = vec![vec![]; max_turn + 1];
+
+    for id in 0..m {
+        let cnt = readInt(&mut iter) as usize;
+        let mut t_inst = Vec::with_capacity(cnt);
+        for _ in 0..cnt {
+            let t_id = readInt(&mut iter) as usize;
+            assert!(t_id < total);
+            t_inst.push(t_id);
         }
+        targets.push(t_inst);
 
-        dirs[i] = vec![' '; targets[i].len()];
-        for j in 0..dirs[i].len() {
-            dirs[i][j] = iter.next().unwrap().chars().next().unwrap();
-        }
-
-        let mut _path = vec![XYZ::new(0, 0, 0); readInt(&mut iter) as usize];
+        let mut _path = vec![(0, 0, 0, 0); readInt(&mut iter) as usize];
+        let mut pathTiming = isize::MAX;
         for j in 0.._path.len() {
-            _path[j] = XYZ::from(&mut iter, w, h, l);
+            _path[j] = (
+                readInt(&mut iter),
+                readInt(&mut iter),
+                readInt(&mut iter),
+                readInt(&mut iter),
+            );
+            pathTiming = std::cmp::min(pathTiming, _path[j].0 + 1);
         }
 
         for j in 0.._path.len() - 1 {
-            paths[i].push((_path[j], _path[j + 1]));
+            let t_0 = _path[j].0 as usize;
+            let t_1 = _path[j + 1].0 as usize;
+            let u = XYZ::new(
+                _path[j].1 as usize,
+                _path[j].2 as usize,
+                _path[j].3 as usize,
+            );
+            let v = XYZ::new(
+                _path[j + 1].1 as usize,
+                _path[j + 1].2 as usize,
+                _path[j + 1].3 as usize,
+            );
+            if t_0 != t_1 {
+                assert!(u.x == v.x && u.y == v.y && u.z == v.z);
+                paths[t_0 + 1].push((id, u, v));
+                paths[t_1 + 1].push((id, u, v));
+            } else {
+                assert!(
+                    (u.x == v.x && u.y == v.y && (u.z as isize - v.z as isize).abs() == 1)
+                        || (u.x == v.x && u.z == v.z && (u.y as isize - v.y as isize).abs() == 1)
+                        || (u.y == v.y && u.z == v.z && (u.x as isize - v.x as isize).abs() == 1)
+                );
+                paths[t_0 + 1].push((id, u, v));
+            }
         }
-
-        paths[i].sort_by_key(|&x| x.0.z != x.1.z);
     }
-
-    let max_turn = ts.iter().max().unwrap().clone();
-
-    // indices_per_t[t]={i | ts[i]=t}
-    let indices_per_t = (0..m).fold(vec![vec![]; max_turn + 1], |mut acc, i| {
-        acc[ts[i]].push(i);
-        acc
-    });
 
     let block_size = 600 / std::cmp::max(w, h);
     let W = block_size * w;
@@ -335,11 +349,7 @@ pub fn parse_output(f: &str) -> Output {
         n1,
         n2,
         xyzs,
-        m,
-        ts,
-        indices_per_t,
         targets,
-        dirs,
         paths,
         max_turn,
         doc_base,
@@ -350,13 +360,136 @@ fn calculate_score(output: &Output) -> i64 {
     output.max_turn as i64
 }
 
-fn make_connection(x: usize, y: usize, w: usize, h: usize) -> Rectangle {
-    Rectangle::new()
-        .set("x", x)
-        .set("y", y)
-        .set("width", w)
-        .set("height", h)
-        .set("fill", "#dae3f3")
+fn add_path(
+    doc: &mut svg::Document,
+    i: usize,
+    u: XYZ,
+    v: XYZ,
+    block_size: usize,
+    output: &Output,
+    colorMap: &[&str],
+) {
+    if u.z != v.z {
+        let mut x = (u.x + u.z * output.w) * block_size + block_size / 3 + DW * u.z;
+        let mut x2 = (v.x + v.z * output.w) * block_size + block_size / 3 + DW * v.z;
+        let mut y = u.y * block_size + block_size / 3;
+        doc.append(
+            Rectangle::new()
+                .set("x", x)
+                .set("y", y)
+                .set("width", block_size / 3)
+                .set("height", block_size / 3)
+                .set("fill", colorMap[i % colorMap.len()])
+                .set("rx", block_size / 6)
+                .set("ry", block_size / 6)
+                .add(
+                    svg::node::element::Title::new().add(svg::node::Text::new(format!(
+                        "Inst {} ({} - {})",
+                        i,
+                        output.targets[i][0] + 1,
+                        output.targets[i][1] + 1
+                    ))),
+                ),
+        );
+        doc.append(
+            Rectangle::new()
+                .set("x", x2)
+                .set("y", y)
+                .set("width", block_size / 3)
+                .set("height", block_size / 3)
+                .set("fill", colorMap[i % colorMap.len()])
+                .set("rx", block_size / 6)
+                .set("ry", block_size / 6)
+                .add(
+                    svg::node::element::Title::new().add(svg::node::Text::new(format!(
+                        "Inst {} ({} - {})",
+                        i,
+                        output.targets[i][0] + 1,
+                        output.targets[i][1] + 1
+                    ))),
+                ),
+        );
+        x = (u.x + u.z * output.w) * block_size + DW * u.z;
+        x2 = (v.x + v.z * output.w) * block_size + DW * v.z;
+        y = u.y * block_size;
+        doc.append(
+            Text::new()
+                .set("x", x + block_size / 2)
+                .set("y", y + block_size / 2)
+                .set("font-size", block_size / 3)
+                .set("zorder", 100)
+                .add(svg::node::Text::new("◉")),
+        );
+        doc.append(
+            Text::new()
+                .set("x", x2 + block_size / 2)
+                .set("y", y + block_size / 2)
+                .set("font-size", block_size / 3)
+                .add(svg::node::Text::new("⊗")),
+        );
+    } else if u.x != v.x || u.y != v.y {
+        let x = (std::cmp::min(u.x, v.x) + u.z * output.w) * block_size + block_size / 3 + DW * u.z;
+        let y = std::cmp::min(u.y, v.y) * block_size + block_size / 3;
+        let width = if u.x == v.x {
+            block_size / 3
+        } else {
+            block_size * 4 / 3
+        };
+        let height = if u.y == v.y {
+            block_size / 3
+        } else {
+            block_size * 4 / 3
+        };
+        doc.append(
+            Rectangle::new()
+                .set("x", x)
+                .set("y", y)
+                .set("width", width)
+                .set("height", height)
+                .set("fill", colorMap[i % colorMap.len()])
+                .set("rx", block_size / 6)
+                .set("ry", block_size / 6)
+                .add(
+                    svg::node::element::Title::new().add(svg::node::Text::new(format!(
+                        "Inst {} ({} - {})",
+                        i,
+                        output.targets[i][0] + 1,
+                        output.targets[i][1] + 1
+                    ))),
+                ),
+        );
+    } else {
+        // different time slice
+        let mut x = (u.x + u.z * output.w) * block_size + block_size / 3 + DW * u.z;
+        let mut y = (u.y) * block_size + block_size / 3;
+        doc.append(
+            Rectangle::new()
+                .set("x", x)
+                .set("y", y)
+                .set("width", block_size / 3)
+                .set("height", block_size / 3)
+                .set("fill", colorMap[i % colorMap.len()])
+                .set("rx", block_size / 6)
+                .set("ry", block_size / 6)
+                .add(
+                    svg::node::element::Title::new().add(svg::node::Text::new(format!(
+                        "Inst {} ({} - {})",
+                        i,
+                        output.targets[i][0] + 1,
+                        output.targets[i][1] + 1
+                    ))),
+                ),
+        );
+        x = (u.x + u.z * output.w) * block_size + DW * u.z;
+        y = u.y * block_size;
+        doc.append(
+            Text::new()
+                .set("x", x + block_size / 2)
+                .set("y", y + block_size / 2)
+                .set("font-size", block_size / 3)
+                .add(svg::node::Text::new("@")),
+        );
+    }
 }
 
 pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
@@ -373,115 +506,12 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
     let mut doc = output.doc_base.clone();
 
     // add paths
-    for &i in &output.indices_per_t[turn] {
-        let path = &output.paths[i];
-        for j in 0..path.len() {
-            let mut u = path[j].0;
-            let mut v = path[j].1;
-
-            if u.z != v.z {
-                if u.z > v.z {
-                    swap(&mut u, &mut v);
-                }
-                let x = (u.x + u.z * output.w) * block_size + DW * u.z;
-                let x2 = (v.x + v.z * output.w) * block_size + DW * v.z;
-                let y = u.y * block_size;
-                doc.append(
-                    Text::new()
-                        .set("x", x + block_size / 2)
-                        .set("y", y + block_size / 2)
-                        .set("font-size", block_size / 3)
-                        .add(svg::node::Text::new("◉")),
-                );
-                doc.append(
-                    Text::new()
-                        .set("x", x2 + block_size / 2)
-                        .set("y", y + block_size / 2)
-                        .set("font-size", block_size / 3)
-                        .add(svg::node::Text::new("⊗")),
-                );
-
-                continue;
-            }
-
-            assert_eq!(u.z, v.z);
-            let x =
-                (std::cmp::min(u.x, v.x) + u.z * output.w) * block_size + block_size / 3 + DW * u.z;
-            let y = std::cmp::min(u.y, v.y) * block_size + block_size / 3;
-            let width = if u.x == v.x {
-                block_size / 3
-            } else {
-                block_size * 4 / 3
-            };
-            let height = if u.y == v.y {
-                block_size / 3
-            } else {
-                block_size * 4 / 3
-            };
-            doc.append(
-                Rectangle::new()
-                    .set("x", x)
-                    .set("y", y)
-                    .set("width", width)
-                    .set("height", height)
-                    .set("fill", colorMap[i % colorMap.len()])
-                    .set("rx", block_size / 6)
-                    .set("ry", block_size / 6)
-                    .add(
-                        svg::node::element::Title::new()
-                            .add(svg::node::Text::new(format!("Inst {}", i))),
-                    ),
-            );
-        }
+    for (id, u, v) in output.paths[turn].clone() {
+        add_path(&mut doc, id, u, v, block_size, output, &colorMap);
     }
 
     // add logical qubits (text)
     add_qubit_id_texts(&mut doc, output.w, output.n1, &output.xyzs, block_size);
-
-    // add connection
-    for &i in &output.indices_per_t[turn] {
-        let target = &output.targets[i];
-        let direction = &output.dirs[i];
-        for j in 0..target.len() {
-            if direction[j] == 'H' {
-                // Horizontal (right side and left side)
-                doc.append(make_connection(
-                    (output.xyzs[target[j]].x + output.xyzs[target[j]].z * output.w) * block_size
-                        + DW * output.xyzs[target[j]].z
-                        + 1,
-                    output.xyzs[target[j]].y * block_size + 1,
-                    block_size / 8,
-                    block_size - 2,
-                ));
-                doc.append(make_connection(
-                    (output.xyzs[target[j]].x + output.xyzs[target[j]].z * output.w) * block_size
-                        + block_size * 7 / 8
-                        + DW * output.xyzs[target[j]].z,
-                    output.xyzs[target[j]].y * block_size + 1,
-                    block_size / 8,
-                    block_size - 2,
-                ));
-            } else {
-                // Vertical (top side and bottom side)
-                doc.append(make_connection(
-                    (output.xyzs[target[j]].x + output.xyzs[target[j]].z * output.w) * block_size
-                        + DW * output.xyzs[target[j]].z
-                        + 1,
-                    output.xyzs[target[j]].y * block_size + 1,
-                    block_size - 2,
-                    block_size / 8,
-                ));
-                doc.append(make_connection(
-                    (output.xyzs[target[j]].x + output.xyzs[target[j]].z * output.w) * block_size
-                        + DW * output.xyzs[target[j]].z
-                        + 1,
-                    output.xyzs[target[j]].y * block_size + block_size * 7 / 8,
-                    block_size - 2,
-                    block_size / 8,
-                ));
-            }
-        }
-    }
 
     if turn == 0 {
         doc = make_doc_base(
@@ -498,53 +528,10 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
         );
     }
 
-    let doc2_str = if output.max_turn < 30 {
-        let W = block_size * output.w;
-
-        let mut doc2 = svg::Document::new()
-            .set("id", "vis2")
-            .set("viewBox", (-5, -5, W + 10, 120 + 10))
-            .set("width", W + 10)
-            .set("height", 120 + 10)
-            .set("style", "background-color:white");
-
-        doc2.append(Style::new(
-            "text {text-anchor: middle; dominant-baseline: central; user-select: none;}",
-        ));
-
-        for i in 0..output.m {
-            doc2.append(
-                Rectangle::new()
-                    .set("x", W * i / output.m)
-                    .set(
-                        "y",
-                        if output.max_turn <= 1 {
-                            0
-                        } else {
-                            120 * output.ts[i] as usize / output.max_turn
-                        },
-                    )
-                    .set("width", W / output.m)
-                    .set("height", 120 / output.max_turn)
-                    .set("fill", colorMap[i % colorMap.len()])
-                    .set(
-                        "fill-opacity",
-                        if turn != 0 && output.ts[i] != turn {
-                            0.5
-                        } else {
-                            1.0
-                        },
-                    )
-                    .add(
-                        svg::node::element::Title::new()
-                            .add(svg::node::Text::new(format!("{}", i))),
-                    ),
-            );
-        }
-        doc2.to_string()
-    } else {
-        "".to_string()
-    };
-
-    (score as i64, "".to_string(), doc2_str, doc.to_string())
+    (
+        score as i64,
+        "".to_string(),
+        "".to_string(),
+        doc.to_string(),
+    )
 }
