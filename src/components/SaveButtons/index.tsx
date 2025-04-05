@@ -17,10 +17,7 @@ const SvgViewer: FC<SvgViewerProps> = ({ visualizerSettingInfo }) => {
 
   /* eslint-disable */ // JavaScriptを書くことになるので、ESLintを無効化
   const onSavePng = useCallback(() => {
-    const ret = vis(
-      visualizerSettingInfo.output,
-      visualizerSettingInfo.turn
-    );
+    const ret = vis(visualizerSettingInfo.output, visualizerSettingInfo.turn);
     const svg = new DOMParser()
       .parseFromString(ret.svg2, 'image/svg+xml')
       .getElementById('vis') as unknown as SVGSVGElement;
@@ -40,10 +37,7 @@ const SvgViewer: FC<SvgViewerProps> = ({ visualizerSettingInfo }) => {
     image.src =
       'data:image/svg+xml;charset=utf-8;base64,' +
       btoa(unescape(encodeURIComponent(ret.svg2)));
-  }, [
-    visualizerSettingInfo.output,
-    visualizerSettingInfo.turn,
-  ]);
+  }, [visualizerSettingInfo.output, visualizerSettingInfo.turn]);
 
   const onSaveGif = useCallback(() => {
     setAnimationButtonDisabled(true);
@@ -54,24 +48,14 @@ const SvgViewer: FC<SvgViewerProps> = ({ visualizerSettingInfo }) => {
     const gif = new GIF({
       workers: 2,
       quality: 100,
-      workerScript: 'node_modules/gif.js/dist/gif.worker.js',
+      workerScript: 'gif.worker.js',
     });
     gif.on('progress', function (p) {
       setAnimationButtonDescription(
         String(Math.round(50 + 50 * p)).padStart(3, ' ') + '% finished'
       );
-      /*
-      save_gif.value =
-        String(Math.round(50 + 50 * p)).padStart(3, ' ') + '% finished';
-        */
     });
     function addFrame(t: number) {
-      /*
-      save_gif.value =
-        String(Math.round((50.0 * t) / max_turn)).padStart(3, ' ') +
-        '% finished';
-        */
-
       setAnimationButtonDescription(
         String(Math.round((50.0 * t) / maxTurn)).padStart(3, ' ') + '% finished'
       );
