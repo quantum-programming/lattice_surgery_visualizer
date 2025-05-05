@@ -128,7 +128,7 @@ fn get_viridis(val: f64) -> String {
         "#d8e319", "#dbe318", "#dde318", "#e0e418", "#e2e418", "#e5e418", "#e8e519", "#eae519",
         "#ede51a", "#efe61b", "#f2e61c", "#f4e61e", "#f7e61f", "#f9e721", "#fbe723", "#fee724",
     ];
-    let idx = (val * (data.len() - 1) as f64).round() as usize;
+    let idx = ((val * 0.8 + 0.2) * (data.len() - 1) as f64).round() as usize;
     return data[idx].to_string();
 }
 
@@ -140,6 +140,13 @@ pub fn add_qubit_id_texts(
     xyzs: &Vec<XYZ>,
     block_size: usize,
 ) {
+    let font_size = {
+        if n1 < 100 {
+            block_size * 2 / 3
+        } else {
+            block_size / 2
+        }
+    };
     for i in 0..n1 {
         doc_base.append(
             Text::new()
@@ -149,7 +156,7 @@ pub fn add_qubit_id_texts(
                 )
                 .set("y", xyzs[i].y * block_size + block_size / 2)
                 .set("fill", "black")
-                .set("font-size", block_size / 2)
+                .set("font-size", font_size)
                 .add(svg::node::Text::new(format!("{}", i + 1))),
         );
     }
@@ -402,6 +409,7 @@ fn calculate_score(output: &Output) -> i64 {
 
 fn add_path(
     doc: &mut svg::Document,
+    texts: &mut Vec<svg::node::element::Text>,
     i: usize,
     u: XYZ,
     v: XYZ,
@@ -452,7 +460,7 @@ fn add_path(
         x = (u.x + u.z * output.w) * block_size + DW * u.z;
         x2 = (v.x + v.z * output.w) * block_size + DW * v.z;
         y = u.y * block_size;
-        doc.append(
+        texts.push(
             Text::new()
                 .set("x", x + block_size / 2)
                 .set("y", y + block_size / 2)
@@ -460,7 +468,7 @@ fn add_path(
                 .set("zorder", 100)
                 .add(svg::node::Text::new("◉")),
         );
-        doc.append(
+        texts.push(
             Text::new()
                 .set("x", x2 + block_size / 2)
                 .set("y", y + block_size / 2)
@@ -522,7 +530,7 @@ fn add_path(
         );
         x = (u.x + u.z * output.w) * block_size + DW * u.z;
         y = u.y * block_size;
-        doc.append(
+        texts.push(
             Text::new()
                 .set("x", x + block_size / 2)
                 .set("y", y + block_size / 2)
@@ -546,8 +554,14 @@ pub fn vis(output: &Output, turn: usize) -> (i64, String, String, String) {
     let mut doc = output.doc_base.clone();
 
     // add paths
+    let mut texts = vec![];
     for (id, u, v) in output.paths[turn].clone() {
-        add_path(&mut doc, id, u, v, block_size, output, &colorMap);
+        add_path(
+            &mut doc, &mut texts, id, u, v, block_size, output, &colorMap,
+        );
+    }
+    for text in texts {
+        doc.append(text);
     }
 
     // add logical qubits (text)
