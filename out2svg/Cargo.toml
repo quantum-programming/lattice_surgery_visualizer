@@ -1,9 +1,0 @@
-[package]
-name = "out2svg"
-version = "0.1.0"
-edition = "2021"
-description = "output to SVG"
-license = "MIT"
-
-[dependencies]
-svg = "0.9.0"
